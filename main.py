@@ -1,51 +1,53 @@
 #!/usr/bin/env python3
-"""Deliver the finished front page for the news-image-20261118 bounty.
+"""Ship the entry image to the make.fun output directory.
 
-The picture itself is a fixed asset: a one-page newspaper that sums up
-Wednesday 18 November 2026 in 34 numbered stories across 6 continents,
-with a world map, a "day in numbers" box, and a drawn Gulf hero panel.
-The lead is the US-Iran clash in the Strait of Hormuz (US jets strike
-an IRGC missile site on Qeshm Island; Washington says it sank five
-Iranian tankers; Brent crude jumped to $93), followed by the Kerch
-Bridge strike, the Nvidia quarter ($115.8bn, up 103%), Cyclone Akvan,
-the Quad meeting in Manila, APEC in Shenzhen, the COP31 talks, Gaza,
-and the day's sport and culture. Contested claims are attributed in
-the text ("US says", "Iran says", "Ukraine says"); figures are as
-reported on 18 November 2026.
-
-This script draws nothing and reaches no network; it simply places the
-finished page where the grader expects it, byte for byte, every time
-it runs. The page was composed at build time with PIL (DejaVu fonts),
-so every word on it is rendered text, never AI-generated lettering.
+Reads entry.png from this script's folder, confirms the PNG signature,
+then drops an exact copy into $MAKEFUN_OUTPUT_DIR (or /output by default).
 """
 
+import hashlib
 import os
+import sys
 from pathlib import Path
 
-SOURCE_NAME = "entry.png"
-CHUNK = 1 << 16
+EXPECTED_MAGIC = bytes.fromhex("89504e470d0a1a0a")
+FILENAME = "entry.png"
+FALLBACK_DIR = "/output"
+LIMIT_BYTES = 1024 * 1024  # entry images must stay under 1 MiB
 
 
-def source_path():
-    return Path(__file__).resolve().parent / SOURCE_NAME
+def die(reason):
+    """Report a fatal problem and stop with a non-zero exit status."""
+    print(f"fatal: {reason}", file=sys.stderr)
+    sys.exit(1)
 
 
-def destination():
-    raw = os.environ.get("MAKEFUN_OUTPUT_DIR") or "/output"
-    return Path(raw) / SOURCE_NAME
+def read_png(script_folder):
+    """Load entry.png next to the script, refusing anything that is not PNG."""
+    path = script_folder / FILENAME
+    if not path.exists():
+        die(f"cannot find {path}")
+    data = path.read_bytes()
+    if len(data) > LIMIT_BYTES:
+        die(f"entry.png is {len(data)} bytes, over the {LIMIT_BYTES} byte limit")
+    if data[:8] != EXPECTED_MAGIC:
+        die("entry.png does not start with the PNG signature")
+    return data
 
 
-def place_page():
-    # Chunked copy keeps the bytes identical without loading the whole page.
-    target = destination()
-    target.parent.mkdir(parents=True, exist_ok=True)
-    with open(source_path(), "rb") as origin, open(target, "wb") as out:
-        while True:
-            piece = origin.read(CHUNK)
-            if not piece:
-                break
-            out.write(piece)
+def main():
+    folder = Path(__file__).parent.resolve()
+    data = read_png(folder)
+
+    destination = Path(os.getenv("MAKEFUN_OUTPUT_DIR", FALLBACK_DIR))
+    destination.mkdir(parents=True, exist_ok=True)
+    outfile = destination / FILENAME
+    outfile.write_bytes(data)
+
+    print("output:", outfile)
+    print("sha256:", hashlib.sha256(data).hexdigest())
+    print("size:", len(data), "bytes")
 
 
 if __name__ == "__main__":
-    place_page()
+    main()
